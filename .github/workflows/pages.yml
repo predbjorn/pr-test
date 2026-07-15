@@ -1,8 +1,8 @@
 name: Deploy game to Pages
 
+# Manual-only: GitHub Pages must first be enabled in repo Settings → Pages
+# (Source: GitHub Actions). Once enabled, run this workflow to publish game/.
 on:
-  push:
-    branches: [claude/fps-runner-prototype-ul9vfe]
   workflow_dispatch:
 
 permissions:

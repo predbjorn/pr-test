@@ -198,7 +198,10 @@ const S = {
   offroad:false,
   penalty:0,
 };
-let best = parseFloat(localStorage.getItem('throttle_best')||'') || null;
+// Safe storage — some webviews / private modes throw on localStorage access.
+function storeGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function storeSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+let best = parseFloat(storeGet('throttle_best')||'') || null;
 window.THROTTLE = S; // exposed for debugging / automated testing
 
 function resize(){
@@ -326,7 +329,7 @@ function finish(){
   if(best===null){ delta='<span style="color:var(--accent)">First run — this is the mark to beat!</span>'; best=total; }
   else if(total < best){ delta='<span style="color:var(--accent)">▲ New record! −'+fmt(best-total)+'s</span>'; best=total; }
   else { delta='<span style="color:var(--hot)">▼ +'+fmt(total-best)+'s off your best</span>'; }
-  localStorage.setItem('throttle_best', String(best));
+  storeSet('throttle_best', String(best));
   updateBest();
   el.finalTime.textContent = fmt(total);
   el.deltaLine.innerHTML = delta;
