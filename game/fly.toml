@@ -1,0 +1,19 @@
+# fly.io config for the THROTTLE prototype (static site via nginx).
+# `app` must be globally unique — `fly launch` will offer to set/rename it,
+# or edit it here before `fly deploy`.
+app = "throttle-runner"
+primary_region = "arn"   # Stockholm; change to a region near you (e.g. lhr, ams, iad)
+
+[build]
+
+[http_service]
+  internal_port = 80
+  force_https = true
+  # Scale to zero when idle so it costs effectively nothing.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
