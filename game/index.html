@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f1a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<title>THROTTLE — first-person time trial</title>
+<style>
+  :root{
+    --bg:#0b0f1a;
+    --ink:#eaf2ff;
+    --dim:#8ea0c0;
+    --accent:#31e0c0;
+    --hot:#ff5a6e;
+    --warn:#ffd24a;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+    touch-action:none;overscroll-behavior:none;user-select:none;-webkit-user-select:none;}
+  #stage{position:fixed;inset:0;}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+
+  /* ---- HUD ---- */
+  #hud{position:absolute;inset:0;pointer-events:none;padding:calc(env(safe-area-inset-top) + 12px) 14px 0;}
+  .row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+  .pill{background:rgba(10,15,28,.55);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08);
+    border-radius:14px;padding:8px 12px;line-height:1;}
+  .label{font-size:10px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;margin-bottom:5px;}
+  .value{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;}
+  #time .value{color:var(--accent);}
+  #best{font-size:11px;color:var(--dim);margin-top:6px;text-align:right;}
+  #spd .value{font-size:18px}
+  #flash{position:absolute;left:50%;top:38%;transform:translate(-50%,0);
+    font-size:15px;font-weight:800;letter-spacing:.08em;padding:8px 16px;border-radius:12px;opacity:0;
+    transition:opacity .15s;text-transform:uppercase;white-space:nowrap;}
+
+  /* ---- Throttle slider (right edge) ---- */
+  #throttle{position:absolute;right:calc(env(safe-area-inset-right) + 10px);top:22%;bottom:14%;width:64px;
+    pointer-events:auto;border-radius:32px;border:1px solid rgba(255,255,255,.12);
+    background:linear-gradient(180deg,rgba(49,224,192,.06),rgba(255,90,110,.06));overflow:hidden;}
+  #throttleFill{position:absolute;left:0;right:0;bottom:0;height:0%;
+    background:linear-gradient(180deg,var(--accent),#2bb6cf);opacity:.85;}
+  #throttleKnob{position:absolute;left:6px;right:6px;height:34px;border-radius:20px;bottom:0;
+    background:#eaf2ff;box-shadow:0 3px 12px rgba(0,0,0,.4);transform:translateY(50%);}
+  #throttleLabel{position:absolute;left:0;right:0;top:8px;text-align:center;font-size:9px;
+    letter-spacing:.15em;color:var(--dim);}
+
+  /* ---- Steering hint (left) ---- */
+  #steerHint{position:absolute;left:14px;bottom:calc(env(safe-area-inset-bottom) + 16px);
+    font-size:11px;color:var(--dim);opacity:.8;pointer-events:none;}
+
+  /* ---- Overlays ---- */
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:28px;gap:14px;background:radial-gradient(ellipse at 50% 30%,rgba(20,28,48,.72),rgba(6,9,17,.92));
+    pointer-events:auto;}
+  .hidden{display:none!important;}
+  h1{margin:0;font-size:34px;font-weight:800;letter-spacing:.02em;
+    background:linear-gradient(90deg,var(--accent),#8ad0ff);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  h2{margin:0;font-size:26px;font-weight:800;}
+  p{margin:0;max-width:340px;color:var(--dim);font-size:14px;line-height:1.5;}
+  .btn{pointer-events:auto;margin-top:6px;padding:15px 30px;border-radius:16px;border:0;font-size:17px;font-weight:800;
+    letter-spacing:.03em;color:#04121a;background:linear-gradient(180deg,var(--accent),#22bfa6);
+    box-shadow:0 8px 24px rgba(49,224,192,.35);}
+  .btn:active{transform:translateY(1px);}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-top:4px;font-size:12px;color:var(--dim);}
+  .legend b{color:var(--ink);}
+  .big{font-size:52px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;letter-spacing:.01em;}
+  .sub{font-size:13px;color:var(--dim);}
+  .delta{font-size:15px;font-weight:700;}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div class="row">
+      <div id="time" class="pill"><div class="label">Time</div><div class="value">0.00</div></div>
+      <div style="text-align:right">
+        <div id="spd" class="pill"><div class="label">Speed</div><div class="value">0</div></div>
+        <div id="best">Best —</div>
+      </div>
+    </div>
+    <div id="flash"></div>
+  </div>
+
+  <div id="throttle" aria-label="throttle">
+    <div id="throttleFill"></div>
+    <div id="throttleLabel">GAS</div>
+    <div id="throttleKnob"></div>
+  </div>
+  <div id="steerHint">◀ slide anywhere to steer ▶</div>
+
+  <!-- Start -->
+  <div id="startScreen" class="screen">
+    <h1>THROTTLE</h1>
+    <p>First-person time trial. Same track every run. <b style="color:var(--ink)">You control the speed.</b>
+       Fastest lap wins — but corners and traffic punish greed.</p>
+    <div class="legend">
+      <span>👉 <b>Right pedal</b> = gas</span>
+      <span>👈 <b>Slide left area</b> = steer</span>
+    </div>
+    <p style="font-size:12.5px">Bank too hot into a curve and centrifugal force throws you off the tarmac.
+       Clip a barrier and you spin. Every mistake costs seconds.</p>
+    <button class="btn" id="startBtn">DROP THE HAMMER</button>
+  </div>
+
+  <!-- Finish -->
+  <div id="endScreen" class="screen hidden">
+    <h2>FINISH</h2>
+    <div class="big" id="finalTime">0.00</div>
+    <div class="delta" id="deltaLine"></div>
+    <div class="sub" id="statsLine"></div>
+    <button class="btn" id="againBtn">RUN IT BACK</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function(){
+// ---------------------------------------------------------------------------
+// Deterministic track — same layout every load so times are comparable.
+// ---------------------------------------------------------------------------
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+
+// World constants (road half-width = 1.0; player x in road units)
+const ROAD_HW      = 1.0;      // road extends x:[-1,1]
+const EDGE         = 0.92;     // beyond this = off track
+const LANES        = [-0.58, 0, 0.58];
+const TRACK_LEN     = 5200;     // finish distance (world units)
+const V_MAX        = 340;      // top speed (units/sec)
+const ACCEL        = 150;      // accel toward target speed
+const BRAKE        = 260;      // decel when easing down
+const OFFROAD_DRAG = 220;      // extra decel off-track
+const STEER_RATE   = 2.6;      // how fast player x tracks steer input
+const CENTRI       = 0.55;     // centrifugal push per (curve*speed)
+const CAM_DEPTH    = 90;       // near plane distance
+const FOG_Z        = 2600;     // draw distance
+
+// ---- build track: segments of {len, curve} + obstacles ----
+let track, obstacles;
+function buildTrack(){
+  const rnd = mulberry32(0xBADA55);
+  track = [];
+  let d = 0;
+  // opening straight to let players settle
+  track.push({start:0,end:420,curve:0});
+  d = 420;
+  const shapes = [
+    [520,0],[380,1.7],[300,0],[460,-2.2],[300,0],[420,2.6],
+    [300,-1.4],[360,0],[300,3.0],[260,-2.6],[420,1.5],[360,0],[300,-3.2],[520,0]
+  ];
+  for(const [len,cv] of shapes){ track.push({start:d,end:d+len,curve:cv}); d+=len; }
+  // pad to finish
+  if(d < TRACK_LEN) track.push({start:d,end:TRACK_LEN+400,curve:0});
+
+  // obstacles (barriers) — placed after the opening straight
+  obstacles = [];
+  let z = 620;
+  while(z < TRACK_LEN - 120){
+    const lane = LANES[(rnd()*3)|0];
+    obstacles.push({z, x:lane, hit:false});
+    // sometimes a double
+    if(rnd() < 0.28){
+      let l2 = LANES[(rnd()*3)|0];
+      if(Math.abs(l2-lane) > 0.1) obstacles.push({z:z+70, x:l2, hit:false});
+    }
+    z += 180 + rnd()*260;
+  }
+}
+function curveAt(d){
+  for(const s of track){ if(d>=s.start && d<s.end) return s.curve; }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let W=0,H=0,DPR=1,horizonY=0,ROAD_K=0;
+const BEND_K = 0.00003;   // curve bend strength (screen offset ~ curve*z^2)
+const S = {
+  mode:'start',      // start | run | end
+  dist:0,            // distance traveled
+  speed:0,           // current speed
+  target:0,          // target speed 0..1 (throttle)
+  px:0,              // player lateral pos
+  steer:0,           // steer input -1..1
+  curveDisp:0,       // smoothed displayed curve
+  time:0,
+  spin:0,            // spin/stun timer
+  offroad:false,
+  penalty:0,
+};
+let best = parseFloat(localStorage.getItem('throttle_best')||'') || null;
+window.THROTTLE = S; // exposed for debugging / automated testing
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2.5);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = W*DPR; cv.height = H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  horizonY = H*0.40;
+  // road spans ~0.92*W at the closest row (z = CAM_DEPTH)
+  ROAD_K = 0.46 * W * CAM_DEPTH;
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', ()=>setTimeout(resize,120));
+
+// ---------------------------------------------------------------------------
+// Input — steering (left area, finger X) + throttle slider (right edge)
+// ---------------------------------------------------------------------------
+const thr = document.getElementById('throttle');
+const thrFill = document.getElementById('throttleFill');
+const thrKnob = document.getElementById('throttleKnob');
+let thrTouchId = null, steerTouchId = null;
+
+function setThrottleFromClientY(cy){
+  const r = thr.getBoundingClientRect();
+  let t = 1 - (cy - r.top)/r.height;
+  t = Math.max(0, Math.min(1, t));
+  S.target = t;
+}
+function setSteerFromClientX(cx){
+  // map full width to [-1,1]; center = straight
+  S.steer = Math.max(-1, Math.min(1, (cx/W)*2 - 1));
+}
+
+function onThrottle(t){
+  const el = document.elementFromPoint(t.clientX, t.clientY);
+  return el && (el===thr || thr.contains(el));
+}
+function onTouchStart(e){
+  let handled=false;
+  for(const t of e.changedTouches){
+    if(onThrottle(t)){
+      if(thrTouchId===null){ thrTouchId=t.identifier; setThrottleFromClientY(t.clientY); }
+      handled=true; continue;
+    }
+    // steering only while racing; never hijack a tap on a menu/button
+    if(S.mode==='run'){
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      if(el && el.closest && el.closest('.screen,.btn')) continue;
+      if(steerTouchId===null){ steerTouchId=t.identifier; setSteerFromClientX(t.clientX); }
+      handled=true;
+    }
+  }
+  if(handled) e.preventDefault();
+}
+function onTouchMove(e){
+  let handled=false;
+  for(const t of e.changedTouches){
+    if(t.identifier===thrTouchId){ setThrottleFromClientY(t.clientY); handled=true; }
+    else if(t.identifier===steerTouchId){ setSteerFromClientX(t.clientX); handled=true; }
+  }
+  if(handled) e.preventDefault();
+}
+function onTouchEnd(e){
+  for(const t of e.changedTouches){
+    if(t.identifier===thrTouchId) thrTouchId=null;
+    if(t.identifier===steerTouchId){ steerTouchId=null; S.steer=0; }
+  }
+}
+window.addEventListener('touchstart', onTouchStart, {passive:false});
+window.addEventListener('touchmove', onTouchMove, {passive:false});
+window.addEventListener('touchend', onTouchEnd, {passive:false});
+window.addEventListener('touchcancel', onTouchEnd, {passive:false});
+
+// Mouse fallback (desktop testing)
+let mouseSteer=false, mouseThr=false;
+cv.addEventListener('mousedown', e=>{ mouseSteer=true; setSteerFromClientX(e.clientX); });
+thr.addEventListener('mousedown', e=>{ mouseThr=true; setThrottleFromClientY(e.clientY); e.stopPropagation(); });
+window.addEventListener('mousemove', e=>{ if(mouseThr) setThrottleFromClientY(e.clientY); else if(mouseSteer) setSteerFromClientX(e.clientX); });
+window.addEventListener('mouseup', ()=>{ if(mouseSteer)S.steer=0; mouseSteer=false; mouseThr=false; });
+
+// Keyboard fallback
+const keys={};
+window.addEventListener('keydown',e=>{keys[e.key]=true;});
+window.addEventListener('keyup',e=>{keys[e.key]=false;});
+
+// ---------------------------------------------------------------------------
+// HUD refs
+// ---------------------------------------------------------------------------
+const el = {
+  time: document.querySelector('#time .value'),
+  spd:  document.querySelector('#spd .value'),
+  best: document.getElementById('best'),
+  flash:document.getElementById('flash'),
+  start:document.getElementById('startScreen'),
+  end:  document.getElementById('endScreen'),
+  finalTime:document.getElementById('finalTime'),
+  deltaLine:document.getElementById('deltaLine'),
+  statsLine:document.getElementById('statsLine'),
+};
+function fmt(t){ return t.toFixed(2); }
+function showFlash(text,color){
+  el.flash.textContent=text; el.flash.style.color=color||'#fff';
+  el.flash.style.opacity='1';
+  clearTimeout(showFlash._t);
+  showFlash._t=setTimeout(()=>{el.flash.style.opacity='0';},700);
+}
+function updateBest(){ el.best.textContent = best? ('Best '+fmt(best)+'s') : 'Best —'; }
+updateBest();
+
+// ---------------------------------------------------------------------------
+// Game control
+// ---------------------------------------------------------------------------
+let crashes=0, topSpeedSeen=0;
+function start(){
+  buildTrack();
+  S.mode='run'; S.dist=0; S.speed=0; S.target=0; S.px=0; S.steer=0;
+  S.curveDisp=0; S.time=0; S.spin=0; S.offroad=false; S.penalty=0;
+  crashes=0; topSpeedSeen=0;
+  el.start.classList.add('hidden'); el.end.classList.add('hidden');
+}
+function finish(){
+  S.mode='end';
+  const total = S.time;
+  let delta='';
+  if(best===null){ delta='<span style="color:var(--accent)">First run — this is the mark to beat!</span>'; best=total; }
+  else if(total < best){ delta='<span style="color:var(--accent)">▲ New record! −'+fmt(best-total)+'s</span>'; best=total; }
+  else { delta='<span style="color:var(--hot)">▼ +'+fmt(total-best)+'s off your best</span>'; }
+  localStorage.setItem('throttle_best', String(best));
+  updateBest();
+  el.finalTime.textContent = fmt(total);
+  el.deltaLine.innerHTML = delta;
+  el.statsLine.textContent = crashes+' crash'+(crashes===1?'':'es')+' · top speed '+Math.round(topSpeedSeen)+' km/h';
+  el.end.classList.remove('hidden');
+}
+document.getElementById('startBtn').addEventListener('click', start);
+document.getElementById('againBtn').addEventListener('click', start);
+
+// ---------------------------------------------------------------------------
+// Update
+// ---------------------------------------------------------------------------
+function update(dt){
+  if(S.mode!=='run') return;
+  S.time += dt;
+
+  // keyboard steering/throttle for desktop
+  if(keys['ArrowLeft']||keys['a']) S.steer=-1;
+  else if(keys['ArrowRight']||keys['d']) S.steer=1;
+  if(keys['ArrowUp']||keys['w']) S.target=Math.min(1,S.target+dt*1.5);
+  if(keys['ArrowDown']||keys['s']) S.target=Math.max(0,S.target-dt*1.5);
+
+  // spin / stun after crash: lose steering, bleed speed
+  if(S.spin>0){ S.spin-=dt; }
+
+  // speed dynamics -> ease toward target
+  const wantV = S.target*V_MAX;
+  if(S.spin>0){
+    S.speed -= (BRAKE*1.4)*dt;
+  } else if(S.speed < wantV){
+    S.speed += ACCEL*dt;
+    if(S.speed>wantV) S.speed=wantV;
+  } else {
+    S.speed -= BRAKE*dt;
+    if(S.speed<wantV) S.speed=wantV;
+  }
+  // off-road drag
+  S.offroad = Math.abs(S.px) > EDGE;
+  if(S.offroad){ S.speed -= OFFROAD_DRAG*dt; }
+  S.speed = Math.max(0, S.speed);
+  if(S.speed>topSpeedSeen) topSpeedSeen=S.speed*0.42; // ~display km/h
+
+  // advance
+  S.dist += S.speed*dt;
+
+  // steering -> lateral position (blocked while spinning)
+  const curve = curveAt(S.dist);
+  S.curveDisp += (curve - S.curveDisp)*Math.min(1,dt*3);
+  if(S.spin<=0){
+    S.px += S.steer * STEER_RATE * dt;
+  }
+  // centrifugal: faster + tighter curve = harder push outward
+  S.px += curve * (S.speed/V_MAX) * CENTRI * dt;
+  S.px = Math.max(-1.15, Math.min(1.15, S.px));
+
+  // obstacle collision
+  for(const o of obstacles){
+    if(o.hit) continue;
+    const rel = o.z - S.dist;
+    if(rel < 12 && rel > -22){
+      if(Math.abs(S.px - o.x) < 0.30){
+        o.hit=true; crashes++;
+        S.speed *= 0.28; S.spin=0.55; S.penalty+=1;
+        S.px += (S.px>o.x?0.25:-0.25); // knocked aside
+        showFlash('CRASH  −time','var(--hot)');
+        rumble();
+      }
+    }
+  }
+
+  // finish
+  if(S.dist >= TRACK_LEN){ finish(); }
+
+  // HUD numbers
+  el.time.textContent = fmt(S.time);
+  el.spd.textContent = Math.round(S.speed*0.42); // arbitrary km/h-ish
+  thrFill.style.height = (S.target*100)+'%';
+  const kr = thr.getBoundingClientRect();
+  thrKnob.style.bottom = (S.target*(kr.height-6))+'px';
+  if(S.offroad && S.mode==='run' && S.speed>4){ showFlash('OFF TRACK','var(--warn)'); }
+}
+
+function rumble(){ if(navigator.vibrate) navigator.vibrate(80); }
+
+// ---------------------------------------------------------------------------
+// Render — scanline pseudo-3D with parabolic curve bend
+// ---------------------------------------------------------------------------
+function zAtRow(y){
+  // y from horizonY..H -> worldZ CAM_DEPTH..inf
+  const p = (y - horizonY)/(H - horizonY); // (0,1]
+  return CAM_DEPTH / Math.max(p,1e-3);
+}
+// screen px per 1.0 road unit at depth z (road half-width in road units = 1.0)
+function halfWidthAt(z){ return ROAD_K / z; }
+function bend(z){
+  // parabolic screen offset for something at depth z ahead
+  return S.curveDisp * z * z * BEND_K;
+}
+
+function render(){
+  // sky
+  const g = ctx.createLinearGradient(0,0,0,horizonY);
+  g.addColorStop(0,'#0a1330'); g.addColorStop(1,'#243a63');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,horizonY);
+  // distant hills glow
+  ctx.fillStyle='rgba(90,120,190,.25)';
+  ctx.beginPath();
+  ctx.moveTo(0,horizonY);
+  for(let x=0;x<=W;x+=40){ ctx.lineTo(x, horizonY - 18*Math.sin(x*0.01 + S.dist*0.002) - 10); }
+  ctx.lineTo(W,horizonY); ctx.closePath(); ctx.fill();
+
+  // ground base
+  ctx.fillStyle='#0c1220';
+  ctx.fillRect(0,horizonY,W,H-horizonY);
+
+  // draw from horizon down to bottom in small steps
+  const step=2;
+  for(let y=Math.floor(horizonY)+1; y<H; y+=step){
+    const z = zAtRow(y);
+    if(z>FOG_Z) continue;
+    const worldD = S.dist + z;
+    const halfW = halfWidthAt(z);           // road half width in screen px
+    const cx = W/2 + bend(z) - S.px*halfW;  // road centre on screen
+    const fog = Math.min(1, z/FOG_Z);
+
+    // grass / off-road stripes
+    const gb = Math.floor(worldD/45)%2===0;
+    ctx.fillStyle = gb ? '#122032' : '#0e1a29';
+    ctx.fillRect(0,y,W,step);
+
+    const rb = Math.floor(worldD/18)%2===0;
+    // rumble strips
+    const rW = Math.max(2, halfW*0.10);
+    ctx.fillStyle = rb ? '#eef2f8' : '#d23a52';
+    ctx.fillRect(cx-halfW-rW, y, rW, step);
+    ctx.fillRect(cx+halfW,    y, rW, step);
+    // tarmac
+    ctx.fillStyle = rb ? '#39465f' : '#323e56';
+    ctx.fillRect(cx-halfW, y, halfW*2, step);
+
+    // lane markings
+    if(halfW>3){
+      const lw = Math.max(1.5, halfW*0.035);
+      const dash = Math.floor(worldD/14)%2===0;
+      if(dash){
+        ctx.fillStyle='rgba(255,255,255,.6)';
+        ctx.fillRect(cx-0.29*halfW-lw/2, y, lw, step);
+        ctx.fillRect(cx+0.29*halfW-lw/2, y, lw, step);
+      }
+      ctx.fillStyle='rgba(255,210,74,.75)';
+      ctx.fillRect(cx-lw/2, y, lw, step);
+    }
+
+    // distance haze
+    if(fog>0.5){
+      ctx.fillStyle='rgba(36,58,99,'+((fog-0.5)/0.5*0.92)+')';
+      ctx.fillRect(0,y,W,step);
+    }
+  }
+
+  // ---- obstacles (billboards) far->near ----
+  const vis = [];
+  for(const o of obstacles){
+    const zRel = o.z - S.dist;
+    if(zRel>CAM_DEPTH*0.15 && zRel<FOG_Z) vis.push(o);
+  }
+  vis.sort((a,b)=>(b.z-a.z));
+  for(const o of vis){
+    const z = o.z - S.dist;
+    const y = horizonY + (H-horizonY)*(CAM_DEPTH/z);
+    if(y<=horizonY||y>H+60) continue;
+    const halfW = halfWidthAt(z);
+    const cx = W/2 + bend(z) - S.px*halfW;
+    const px = cx + o.x*halfW;          // obstacle lane centre (x in road units)
+    const w = Math.max(2, halfW*0.34);  // barrier width
+    const h = w*1.5;
+    const fog = Math.min(1, z/FOG_Z);
+    ctx.globalAlpha = 1-fog*0.75;
+    // shadow
+    ctx.fillStyle='rgba(0,0,0,.35)';
+    ctx.fillRect(px-w*0.6, y-h*0.06, w*1.2, h*0.12);
+    // striped barrier
+    const bands=4;
+    for(let i=0;i<bands;i++){
+      ctx.fillStyle = i%2 ? '#ff5a6e' : '#ffd24a';
+      ctx.fillRect(px-w/2, y-h + i*(h/bands), w, h/bands+0.5);
+    }
+    ctx.strokeStyle='rgba(0,0,0,.55)'; ctx.lineWidth=Math.max(1,w*0.05);
+    ctx.strokeRect(px-w/2, y-h, w, h);
+    ctx.globalAlpha=1;
+  }
+
+  // speed vignette + offroad tint
+  if(S.speed>V_MAX*0.6){
+    const a=(S.speed/V_MAX-0.6)/0.4*0.35;
+    const vg=ctx.createRadialGradient(W/2,H*0.55,H*0.2,W/2,H*0.55,H*0.75);
+    vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,'+a+')');
+    ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+  }
+  if(S.offroad){ ctx.fillStyle='rgba(255,150,40,.12)'; ctx.fillRect(0,0,W,H); }
+  if(S.spin>0){ ctx.fillStyle='rgba(255,40,60,'+(S.spin*0.25)+')'; ctx.fillRect(0,0,W,H); }
+
+  // progress bar (top center)
+  const prog=Math.min(1,S.dist/TRACK_LEN);
+  ctx.fillStyle='rgba(255,255,255,.12)';
+  ctx.fillRect(W*0.5-70, 14, 140, 4);
+  ctx.fillStyle='var(--accent)'; ctx.fillStyle='#31e0c0';
+  ctx.fillRect(W*0.5-70, 14, 140*prog, 4);
+}
+
+// ---------------------------------------------------------------------------
+// Loop
+// ---------------------------------------------------------------------------
+let last=performance.now();
+function frame(now){
+  let dt=(now-last)/1000; last=now;
+  if(dt>0.05) dt=0.05; // clamp
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+resize();
+buildTrack();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
